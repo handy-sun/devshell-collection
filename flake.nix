@@ -13,6 +13,11 @@
 
       forEachSystem = f: nixpkgs.lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
 
+      # OpenWrt 有些 host 脚本还在用老式 setup.py / distutils（owrt22 容器里
+      # 对应的就是 python3-distutils + python3-setuptools）。Python 3.12 起
+      # distutils 已经不在标准库里，只能靠 setuptools 提供的垫片补回来。
+      pythonFor = pkgs: pkgs.python3.withPackages (ps: [ ps.setuptools ]);
+
       # ------------------------------------------------------------------
       # 依赖清单
       #
@@ -46,6 +51,9 @@
           diffutils # diff --version | grep GNU
           which # which which
           util-linux # getopt --long
+          # 内核的 timeconst.bc 生成 timeconst.h 时要调 bc；
+          # buildroot 自己的 tools/bc 得等 tools 阶段编完才有。
+          bc
           file
           unzip
           gzip
@@ -63,7 +71,7 @@
           swig # OpenWrt 文档列出的依赖
           perl # 需 Data::Dumper / FindBin / File::Copy / File::Compare /
           # Thread::Queue —— 均为 core 模块，nixpkgs 的 perl 已自带
-          python3 # 需 >= 3.6；3.12+ 无 distutils，prereq 会自动跳过该项
+          (pythonFor pkgs) # 需 >= 3.6；带 setuptools，distutils 靠它垫
           ncurses # menuconfig 要 ncurses.h + -lncurses
           openssl # libssl-dev
           elfutils # libelf-dev
@@ -91,7 +99,7 @@
         [
           (mkAlias "awk" "${pkgs.gawk}/bin/gawk")
           # scripts/checkpatch.pl 里直接调 `python <script>.py`
-          (mkAlias "python" "${pkgs.python3}/bin/python3")
+          (mkAlias "python" "${pythonFor pkgs}/bin/python3")
           # prereq 要 `egrep --version | grep GNU`，语义还得是 grep -E
           (pkgs.writeShellScriptBin "egrep" ''exec ${pkgs.gnugrep}/bin/grep -E "$@"'')
         ];
@@ -114,12 +122,26 @@
           # 让 dev 输出也进 FHS（头文件、pkg-config、.so 链接）
           extraOutputsToInstall = [ "dev" ];
 
+          # 关掉 nix cc-wrapper 的 hardening 注入（-D_FORTIFY_SOURCE、
+          # -fstack-protector-strong 等）。buildroot 自己决定优化和加固参数，
+          # 宿主再偷偷塞一份只会让老代码在 -Werror 下挂掉。
+          hardeningDisable = [ "all" ];
+
           runScript = "bash";
 
           # 进入环境时被 source
           profile = ''
             # buildroot 的 prereq 会检查 umask
             umask 022
+
+            # fakeroot（buildroot 的 tools/fakeroot 1.29）在 bwrap 的 user
+            # namespace 里做 chown 拿到的是 EINVAL、不是它期待的 EPERM，
+            # package/install 打包那一步会带着错误直接退出。fakeroot 认这个
+            # 开关（官方 man page 都没写）。
+            export FAKEROOTDONTTRYCHOWN=1
+
+            # 同上：别让 nix 的编译器 wrapper 往 buildroot 的编译里塞加固标志
+            export NIX_HARDENING_ENABLE=
 
             export LANG=en_US.UTF-8
             export LC_ALL=en_US.UTF-8
@@ -177,8 +199,11 @@
           # 只适合跑不需要 /bin/sh 的东西（perl/gcc/python 检查、脚本 lint）
           bare = pkgs.mkShell {
             packages = openwrtHostPackages pkgs ++ openwrtAliases pkgs ++ [ (defaultGcc pkgs) ];
+            # 见 mkFhsEnv：不让 nix 的加固标志混进 buildroot 的编译参数
+            hardeningDisable = [ "all" ];
             shellHook = ''
               umask 022
+              export FAKEROOTDONTTRYCHOWN=1
               export LANG=en_US.UTF-8
               export LC_ALL=en_US.UTF-8
               export TZ=Asia/Shanghai

@@ -72,15 +72,37 @@ make defconfig
 |---|---|
 | 编译器 | `gcc13`（默认）/ `gcc`（可选），`binutils` |
 | 构建系统 | `gnumake` `bison` `flex` `cmake` `ninja` `pkg-config` |
-| 必需 GNU 工具 | `bashInteractive` `coreutils` `findutils` `gnugrep` `gawk` `gnused` `gnutar` `patch` `diffutils` `which` `util-linux`(getopt) `file` `install` |
+| 必需 GNU 工具 | `bashInteractive` `coreutils` `findutils` `gnugrep` `gawk` `gnused` `gnutar` `patch` `diffutils` `which` `util-linux`(getopt) `file` `bc`(内核 timeconst) |
 | 压缩/归档 | `gzip` `bzip2` `xz` `zstd` `unzip` `cpio` `rsync` |
 | 网络 | `wget` `curl` `cacert` `git` `subversion` |
-| 语言 | `perl`（含 Thread::Queue 等 core 模块）`python3` |
+| 语言 | `perl`（含 Thread::Queue 等 core 模块）`python3` + setuptools（补回 distutils） |
 | 库 | `ncurses`(menuconfig) `openssl` `zlib` + `zlib.static` `elfutils` |
 | 其它 | `gettext` `swig` `tzdata` `glibcLocales` |
 
 **gcc 版本为什么默认 13**：GCC 14 起 `-Werror=implicit-function-declaration` 变成默认错误，
 OpenWrt 23.05 里那批老 configure 探测脚本很容易直接挂。用 `.#gcc-latest` 可以试新的。
+
+## 和 Mic92 那份 nix-shell 配方的关系
+
+开工时对照了 [Mic92 的 OpenWrt nix-shell 配方](https://gist.github.com/Mic92/200f9811f218058ae66b0946f781ec33)
+（以及它自己指向的维护版 [nix-community/nix-environments](https://github.com/nix-community/nix-environments/tree/master/envs/openwrt)），
+下面几条在 FHS 方案里同样成立，已经采纳：
+
+| 配方里的写法 | 为什么这里也要 |
+|---|---|
+| `hardeningDisable = "all"` | nix 的 cc-wrapper 会往每次编译里加 `-D_FORTIFY_SOURCE`、`-fstack-protector-strong` 之类；buildroot 里的老 configure 探测配上 `-Werror` 很容易直接挂。FHS 里用 `NIX_HARDENING_ENABLE=` 达到同样效果 |
+| `FAKEROOTDONTTRYCHOWN=1` | bwrap 的 user namespace 里 `chown` 返回的是 `EINVAL` 而不是 `EPERM`，buildroot 的 fakeroot（tools/fakeroot 1.29）在 `package/install` 那一步会带着错误退出 |
+| `bc` | 内核的 `timeconst.bc` 生成 `timeconst.h` 时要调 `bc`；buildroot 自己的 `tools/bc` 要等 tools 阶段编完才有 |
+| `python3` + setuptools | 对应 owrt22 容器里的 `python3-distutils` + `python3-setuptools`；Python 3.12 起 distutils 已不在标准库 |
+
+没照抄的：
+
+- `NIX_LDFLAGS = "-lncurses"`、`zlibStatic`：FHS 的 `/usr/lib` 本来就在链接搜索路径里，
+  静态 zlib 用 `zlib.static` 输出（nixpkgs 早把 `zlibStatic` 并回 `zlib`）。
+- `perlPackages.ThreadQueue` / `ExtUtilsMakeMaker`：这两个在 nixpkgs 的 `perl` 里已经是 core 模块。
+- LEDE 时代的 `asciidoc` `fastjar` `intltool` `jikespg` `cdrkit` `ruby` `sdcc`：
+  `mediatek/filogic` 这个目标用不上，真需要再加。
+- 配方是把依赖塞进 `nix-shell` 的 `stdenv`；这里必须走 `buildFHSEnv`，原因见上面「为什么必须是 FHS 环境」。
 
 ## 已验证
 
