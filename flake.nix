@@ -143,6 +143,17 @@
             # 同上：别让 nix 的编译器 wrapper 往 buildroot 的编译里塞加固标志
             export NIX_HARDENING_ENABLE=
 
+            # 2026 年的 glibc/gcc 对 2023 年的老代码会报一堆当年没有的警告，
+            # 而 buildroot 的 host tools 大多自带 -Werror，一撞就编不过。
+            # 典型：tools/elfutils 0.189 的 libcpu/riscv_disasm.c —— glibc 2.38
+            # 起 _GNU_SOURCE 也会打开 C23 语义，bsearch 变成 const-generic 宏，
+            # 拿 const 数组查询时返回 const void *，那句
+            # "initialization discards 'const' qualifier" 就被 -Werror 顶成错误。
+            # 这里让 nix 的 cc-wrapper 在命令行末尾补 -Wno-error：警告照旧打印，
+            # 只是不再中断编译。目标端不受影响——那是 buildroot 自建的工具链在编，
+            # 根本不经过 nix 的 wrapper。
+            export NIX_CFLAGS_COMPILE="''${NIX_CFLAGS_COMPILE} -Wno-error"
+
             export LANG=en_US.UTF-8
             export LC_ALL=en_US.UTF-8
             export TZ=Asia/Shanghai

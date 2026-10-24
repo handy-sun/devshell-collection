@@ -155,6 +155,7 @@ qemu-aarch64 -L $(dirname $(aarch64-unknown-linux-musl-g++ -print-file-name=libc
 | configure 报 `cannot run C compiled programs` | 交叉编进了 buildroot，或 `CC` 被环境覆盖 |
 | `undefined reference to ...` 且是 host 库 | 缺静态库，参考 `zlib.static` 的做法补 |
 | `make: /usr/bin/env: No such file or directory` | 某个脚本没走 FHS，检查是否在环境外执行 |
+| `error: initialization discards 'const' qualifier [-Werror=discarded-qualifiers]` 这类**新警告被 `-Werror` 顶成错误** | 2026 年的 glibc/gcc 对 2023 年的代码更严格。**实际踩过的**：`tools/elfutils` 0.189 的 `libcpu/riscv_disasm.c` —— glibc 2.38 起 `_GNU_SOURCE` 也打开 C23 语义，`bsearch` 成了 const-generic 宏，对 const 数组查询时返回 `const void *`。环境里已经在 `NIX_CFLAGS_COMPILE` 末尾补了 `-Wno-error`（只影响用 nix gcc 编的 host tools，buildroot 自建工具链编的目标代码不受影响），警告照旧打印 |
 
 ## 维护
 
