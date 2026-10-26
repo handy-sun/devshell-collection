@@ -1,5 +1,5 @@
 {
-  description = "OpenWrt buildroot 交叉编译环境（NixOS 原生，不用容器）";
+  description = "OpenWrt buildroot cross compile shell";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -158,8 +158,8 @@
             export LC_ALL=en_US.UTF-8
             export TZ=Asia/Shanghai
 
-            # 源码树位置
-            export OPENWRT_DIR="''${OPENWRT_DIR:-$HOME/ztemp-changes/openwrt-src}"
+            # 源码树位置（也可以用 OPENWRT_DIR 覆盖）
+            export OPENWRT_DIR="''${OPENWRT_DIR:-$HOME/work/openwrt-src}"
 
             # 防止宿主环境的编译参数泄漏进 buildroot。
             # 注意：NIX_CFLAGS_COMPILE / NIX_LDFLAGS 不能 unset——FHS 正是靠
@@ -218,7 +218,7 @@
               export LANG=en_US.UTF-8
               export LC_ALL=en_US.UTF-8
               export TZ=Asia/Shanghai
-              export OPENWRT_DIR="''${OPENWRT_DIR:-$HOME/ztemp-changes/openwrt-src}"
+              export OPENWRT_DIR="''${OPENWRT_DIR:-$HOME/work/openwrt-src}"
             '';
           };
 

@@ -30,7 +30,7 @@ nix develop            # 进入交互式 FHS 环境
 进去以后：
 
 ```bash
-cd $OPENWRT_DIR        # 默认 ~/ztemp-changes/openwrt-src
+cd $OPENWRT_DIR
 make defconfig
 make -j$(nproc) V=s
 ```
@@ -38,7 +38,7 @@ make -j$(nproc) V=s
 脚本 / CI 里要非交互执行，用包装器（`.env` 不透传 `--command`）：
 
 ```bash
-nix run .#shell -- -c 'cd ~/ztemp-changes/openwrt-src && make prereq'
+nix run .#shell -- -c 'cd ~/work/openwrt-src && make prereq'
 ```
 
 其它 shell：
@@ -56,7 +56,7 @@ Docker 里（Ubuntu）编出来的 `staging_dir/host`、`staging_dir/toolchain` 
 所以第一次用这个环境前必须重来：
 
 ```bash
-cd ~/ztemp-changes/openwrt-src
+cd ~/work/openwrt-src
 rm -rf staging_dir build_dir bin tmp          # dl/ 保留，省下载
 make defconfig
 ```
