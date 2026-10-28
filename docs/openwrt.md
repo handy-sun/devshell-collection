@@ -37,6 +37,39 @@ nix run .#shell -- -c 'cd "$OPENWRT_DIR" && make prereq'
 | `nix develop .#cross-aarch64` | nixpkgs 的 aarch64+musl 交叉工具链 + qemu，仅用于脱离 buildroot 快速验证代码能否为 aarch64 编过 |
 | `nix run .#shell -- -c '…'` | 非交互入口（`packages.shell`），CI 用 |
 
+## 和 direnv 的关系
+
+**FHS 环境不能交给 direnv / nix-direnv。** 原因是 `devShells.openwrt` 的 shellHook 本身就是
+`exec bwrap` 起一个交互 shell：direnv 在计算环境时会执行 shellHook，于是它永远等不到返回
+（终端上表现为反复输出 `direnv: (…) is taking a while to execute`）；而 bwrap 里新起的 bash
+继承了 `DIRENV_*`，prompt 一到又重新加载同一个 `.envrc`，一路自我嵌套，最后内核/ bwrap 拒绝：
+
+```
+bwrap: Creating new namespace failed: nesting depth or /proc/sys/user/max_*_namespaces exceeded (ENOSPC)
+```
+
+修复办法：
+
+1. 本仓库**不带** `.envrc`，也不要把 `.envrc` 指向 `.#openwrt`。
+
+2. 进构建环境：自己 `cd` 到源码树，再用 `nix develop` 指到本仓库
+   （当前目录就在 flake 仓库里时写 `.#openwrt` 也一样）：
+
+   ```bash
+   cd ~/work/openwrt-src
+   nix develop ~/Projects/devshell-collection#openwrt
+   ```
+
+3. 已经套娃了（`echo $SHLVL` 很大、`pgrep -c bwrap` 很多）：
+
+   ```bash
+   pkill -u "$USER" -f 'bwrap .*openwrt-buildroot'   # 收掉所有 FHS 终端
+   # 然后重开终端；确认 pgrep -c bwrap 归零
+   ```
+
+   `user.max_user_namespaces` 一般不是瓶颈（Fedora 默认 25 万+），真正卡住的是嵌套层级和
+   这些没退出的 bwrap 实例。
+
 ## 为什么必须是 FHS 环境
 
 OpenWrt buildroot 硬依赖一批固定路径，NixOS 上默认没有：

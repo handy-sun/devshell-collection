@@ -2,6 +2,7 @@ result
 result-*
 .direnv/
 .direnv*
+.env
 
 docs/*.md
 !docs/openwrt.md

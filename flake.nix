@@ -18,6 +18,7 @@
       # 环境模板：只提供 "给一组 pkgs + 参数 → devShell" 的函数。
       # 具体参数（gcc 版本、目标三元组…）在下面的 devShells 里显式写清楚。
       openwrt = import ./lib/openwrt.nix { inherit lib; };
+      mkPythonOnefile = import ./lib/python-onefile.nix { inherit lib; };
     in
     {
       devShells = forEachSystem (
@@ -41,6 +42,23 @@
             qemuArch = "aarch64";
           };
 
+          # PyInstaller 单文件，产物要能在 CentOS/RHEL 7（glibc 2.17）上跑。
+          # Python 用 python-build-standalone 的 3.12（按 glibc 2.17 基线编译），
+          # 构建后会自动校验产物的 GLIBC 符号版本。
+          # 用 PYINS_EL7_DIR 指到具体项目（见 README「单文件打包」）。
+          pyins-el7 = mkPythonOnefile {
+            inherit pkgs;
+            name = "pyins-el7";
+            dirEnv = "PYINS_EL7_DIR";
+            defaultDir = "work/pyins-el7";
+            python = "3.12";
+            pyinstaller = "6.22.3";
+            deps = [
+              "fastapi==0.110.3"
+              "uvicorn==0.29.0"
+            ];
+            glibcBaseline = "2.17";
+          };
         }
       );
 
