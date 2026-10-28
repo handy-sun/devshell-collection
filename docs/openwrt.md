@@ -117,6 +117,26 @@ qemu-aarch64 -L "$(dirname "$(aarch64-unknown-linux-musl-g++ -print-file-name=li
 perl 里已经是 core 模块）。那份配方把依赖塞进 `nix-shell` 的 `stdenv`，而 buildroot 需要固定的
 `/bin/sh` 等路径，所以这里必须走 `buildFHSEnv`。
 
+## 参数（`lib/openwrt.nix`）
+
+环境由模板生成，`flake.nix` 里只写参数。常用几个：
+
+| 模板 | 参数 | 说明 |
+|---|---|---|
+| `mkFhsEnv` | `gcc` | 宿主编译器，默认 `pkgs.gcc13`；GCC 14+ 会把隐式函数声明当错误 |
+| | `suffix` | 环境名后缀，多个 FHS 环境共存时用来区分 |
+| | `extraPackages` | 额外宿主工具（项目自己需要的） |
+| | `extraProfile` | 追加到 `/etc/profile` 末尾的内容 |
+| `mkDevShell` | 同 `mkFhsEnv` | 直接产出 `.env`，给 `devShells` 用 |
+| `mkBare` | `gcc`、`extraPackages` | 无 FHS 的轻量版本 |
+| `mkCrossAarch64` | `target`、`qemuArch`、`withQemu` | 换目标平台时改这两个（`pkgsCross` 属性名 / qemu-user 可执行名） |
+
+例如想再加一个"用 gcc12 编 OpenWrt"的环境：
+
+```nix
+openwrt-gcc12 = openwrt.mkDevShell { inherit pkgs; gcc = pkgs.gcc12; suffix = "-gcc12"; };
+```
+
 ## 维护
 
 ```bash

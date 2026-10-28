@@ -6,12 +6,12 @@
 
 ## 包含的环境
 
-| devShell | 源码库 | 说明 |
-|---|---|---|
-| `.#default` / `.#openwrt` | OpenWrt buildroot | 宿主编译环境（bubblewrap FHS）。`prereq` → `tools` → `toolchain` → 全量 `make` 已验证跑通并产出镜像，详见 [docs/openwrt.md](docs/openwrt.md) |
-| `.#openwrt-bare` | 同上 | 不带 FHS 的轻量版，支持 `--command` |
-| `.#openwrt-gcc-latest` | 同上 | 同上，换成 nixpkgs 当前的 gcc |
-| `.#cross-aarch64` | 任意 | nixpkgs 的 aarch64+musl 交叉工具链 + qemu，脱离 buildroot 用 |
+| devShell | 源码库 | 说明 | 文档 |
+|---|---|---|---|
+| `.#default` / `.#openwrt` | OpenWrt buildroot | 宿主编译环境（bubblewrap FHS）。`prereq` → `tools` → `toolchain` → 全量 `make` 已验证跑通并产出镜像 | [openwrt.md](docs/openwrt.md) |
+| `.#openwrt-bare` | 同上 | 不带 FHS 的轻量版，支持 `--command` | [openwrt.md](docs/openwrt.md) |
+| `.#openwrt-gcc-latest` | 同上 | 同上，换成 nixpkgs 当前的 gcc | [openwrt.md](docs/openwrt.md) |
+| `.#cross-aarch64` | 任意 | nixpkgs 的 aarch64+musl 交叉工具链 + qemu，脱离 buildroot 用 | [cross-aarch64.md](docs/cross-aarch64.md) |
 
 ## 用法
 
@@ -33,7 +33,7 @@ use flake ~/Projects/devshell-collection#openwrt-bare
 
 - 路径类变量统一用 `*_DIR`（例如 `OPENWRT_DIR`），都有默认值，可被环境变量覆盖。
 - 所有环境共用一份 `flake.lock`：`nix flake update` 一次全动，避免不同环境跑在不同 nixpkgs 上。
-- 环境细节放 `lib/`（`openwrt.nix`），`flake.nix` 只负责拼装。
+- 环境细节放 `lib/`（`openwrt.nix`），`flake.nix` 只负责拼装和传参数。
 - 新增一个环境：用现成模板（或在 `lib/` 里加一个）→ 在 `flake.nix` 的 `devShells` 里挂上 →
   在 `docs/` 补一页 → 更新上面那张表。
 

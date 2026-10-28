@@ -2,3 +2,7 @@ result
 result-*
 .direnv/
 .direnv*
+
+docs/*.md
+!docs/openwrt.md
+!docs/cross-aarch64.md
