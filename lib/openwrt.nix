@@ -1,11 +1,14 @@
 # OpenWrt buildroot 的宿主编译环境（buildFHSEnv + bubblewrap）。
 #
-# buildroot 硬依赖 /bin/sh、/usr/bin/env、/usr/include 这些固定路径，NixOS 上只能靠 FHS
-# 拼出来；为什么必须这样、以及各类绕坑，见 docs/openwrt.md。
+# 这里只放"模板"，具体挂哪几个 devShell 由 flake.nix 决定：
+#   mkFhsEnv        buildFHSEnv 本体，可以包装成 nix run 入口，也能取 .env 当 devShell
+#   mkDevShell      同上的 .env 版本（devShells 用这个）
+#   mkBare          无 FHS 的轻量 mkShell
+#   mkCrossAarch64  nixpkgs 的交叉工具链 + qemu（与 buildroot 无关）
+#
+# 为什么必须用 FHS、各项取舍见 docs/openwrt.md。
 { lib }:
 let
-  inherit (lib) optionalString;
-
   # OpenWrt 有些 host 脚本还在用老式 setup.py / distutils（对应发行版里的
   # python3-distutils + python3-setuptools）。Python 3.12 起 distutils 已经
   # 不在标准库里，只能靠 setuptools 提供的垫片补回来。
@@ -94,23 +97,58 @@ let
       # scripts/checkpatch.pl 里直接调 `python <script>.py`
       (mkAlias "python" "${pythonFor pkgs}/bin/python3")
       # prereq 要 `egrep --version | grep GNU`，语义还得是 grep -E
-      (pkgs.writeShellScriptBin "egrep" ''exec ${pkgs.gnugrep}/bin/grep -E "$@"'')
+      (pkgs.writeShellScriptBin "egrep" ''exec ${pkgs.gnugrep}/bin/grep -E "$"'')
     ];
 
-  # ------------------------------------------------------------------
-  # FHS 环境：OpenWrt buildroot 大量依赖 /bin/sh、/usr/bin/env、
-  # /usr/include、/usr/lib 这些固定路径，NixOS 上只能靠 bubblewrap 拼一个。
-  # ------------------------------------------------------------------
+  # 固定的环境变量与提示：FHS 和 bare 两个 shell 共用
+  commonExports = ''
+    umask 022
+
+    # fakeroot（buildroot 的 tools/fakeroot）在 bwrap 的 user namespace 里
+    # 做 chown 拿到的是 EINVAL、不是它期待的 EPERM，package/install 打包那一步
+    # 会带着错误直接退出。fakeroot 认这个开关（官方 man page 都没写）。
+    export FAKEROOTDONTTRYCHOWN=1
+
+    # 别让 nix 的编译器 wrapper 往 buildroot 的编译里塞加固标志
+    export NIX_HARDENING_ENABLE=
+
+    # 新 glibc/gcc 对几年前的旧代码会报一堆当年没有的警告，而 buildroot 的
+    # host tools 大多自带 -Werror，一撞就编不过。典型：tools/elfutils 的
+    # libcpu/riscv_disasm.c —— glibc 2.38 起 _GNU_SOURCE 也会打开 C23 语义，
+    # bsearch 变成 const-generic 宏，拿 const 数组查询时返回 const void *，
+    # 那句 "initialization discards 'const' qualifier" 就被 -Werror 顶成错误。
+    # 这里让 nix 的 cc-wrapper 在命令行末尾补 -Wno-error：警告照旧打印，只是
+    # 不再中断编译。目标端不受影响——那是 buildroot 自建的工具链在编。
+    export NIX_CFLAGS_COMPILE="''${NIX_CFLAGS_COMPILE} -Wno-error"
+
+    export LANG=en_US.UTF-8
+    export LC_ALL=en_US.UTF-8
+    export TZ=Asia/Shanghai
+
+    # 源码树位置（也可以用 OPENWRT_DIR 覆盖）
+    export OPENWRT_DIR="''${OPENWRT_DIR:-$HOME/work/openwrt-src}"
+  '';
+in
+rec {
+  inherit hostPackages aliases;
+
+  # 通用 FHS 环境。
+  #   gcc             宿主编译器，默认 gcc13（GCC 14+ 会把隐式函数声明当错误）
+  #   suffix          名字后缀，多个环境共存时用来区分
+  #   extraPackages   额外依赖（项目自己需要的宿主导工具）
+  #   extraProfile    追加到 /etc/profile 末尾的内容
   mkFhsEnv =
     {
       pkgs,
       gcc ? pkgs.gcc13,
       suffix ? "",
+      extraPackages ? [ ],
+      extraProfile ? "",
     }:
     pkgs.buildFHSEnv {
       name = "openwrt-buildroot${suffix}";
 
-      targetPkgs = pkgs: hostPackages pkgs ++ aliases pkgs ++ [ gcc ];
+      targetPkgs = pkgs: hostPackages pkgs ++ aliases pkgs ++ extraPackages ++ [ gcc ];
 
       # 让 dev 输出也进 FHS（头文件、pkg-config、.so 链接）
       extraOutputsToInstall = [ "dev" ];
@@ -124,32 +162,7 @@ let
 
       # 进入环境时被 source
       profile = ''
-        # buildroot 的 prereq 会检查 umask
-        umask 022
-
-        # fakeroot（buildroot 的 tools/fakeroot）在 bwrap 的 user namespace 里
-        # 做 chown 拿到的是 EINVAL、不是它期待的 EPERM，package/install 打包那一步
-        # 会带着错误直接退出。fakeroot 认这个开关（官方 man page 都没写）。
-        export FAKEROOTDONTTRYCHOWN=1
-
-        # 同上：别让 nix 的编译器 wrapper 往 buildroot 的编译里塞加固标志
-        export NIX_HARDENING_ENABLE=
-
-        # 新 glibc/gcc 对几年前的旧代码会报一堆当年没有的警告，而 buildroot 的
-        # host tools 大多自带 -Werror，一撞就编不过。典型：tools/elfutils 的
-        # libcpu/riscv_disasm.c —— glibc 2.38 起 _GNU_SOURCE 也会打开 C23 语义，
-        # bsearch 变成 const-generic 宏，拿 const 数组查询时返回 const void *，
-        # 那句 "initialization discards 'const' qualifier" 就被 -Werror 顶成错误。
-        # 这里让 nix 的 cc-wrapper 在命令行末尾补 -Wno-error：警告照旧打印，只是
-        # 不再中断编译。目标端不受影响——那是 buildroot 自建的工具链在编。
-        export NIX_CFLAGS_COMPILE="''${NIX_CFLAGS_COMPILE} -Wno-error"
-
-        export LANG=en_US.UTF-8
-        export LC_ALL=en_US.UTF-8
-        export TZ=Asia/Shanghai
-
-        # 源码树位置（也可以用 OPENWRT_DIR 覆盖）
-        export OPENWRT_DIR="''${OPENWRT_DIR:-$HOME/work/openwrt-src}"
+        ${commonExports}
 
         # 防止宿主环境的编译参数泄漏进 buildroot。
         # 注意：NIX_CFLAGS_COMPILE / NIX_LDFLAGS 不能 unset——FHS 正是靠
@@ -166,61 +179,53 @@ let
         echo "OpenWrt buildroot 环境 | gcc $(gcc -dumpversion) | $(bash --version | head -1)"
         echo "源码树：$OPENWRT_DIR"
         echo "常用：cd \$OPENWRT_DIR && make defconfig && make -j\$(nproc) V=s"
+        ${extraProfile}
       '';
     };
 
-  # 没有 FHS 的轻量环境：支持 `nix develop .#openwrt-bare --command ...`，
+  # 直接当 devShell 用（devShells 需要的是 .env 而不是 FHS 本体）
+  mkDevShell = args: (mkFhsEnv args).env;
+
+  # 无 FHS 的轻量环境：支持 `nix develop .#openwrt-bare --command ...`，
   # 只适合跑不需要 /bin/sh 的东西（perl/gcc/python 探测、脚本 lint）。
   mkBare =
-    pkgs:
+    {
+      pkgs,
+      gcc ? pkgs.gcc13,
+      extraPackages ? [ ],
+    }:
     pkgs.mkShell {
-      packages = hostPackages pkgs ++ aliases pkgs ++ [ pkgs.gcc13 ];
+      packages = hostPackages pkgs ++ aliases pkgs ++ extraPackages ++ [ gcc ];
       # 见 mkFhsEnv：不让 nix 的加固标志混进 buildroot 的编译参数
       hardeningDisable = [ "all" ];
       shellHook = ''
-        umask 022
-        export FAKEROOTDONTTRYCHOWN=1
-        export LANG=en_US.UTF-8
-        export LC_ALL=en_US.UTF-8
-        export TZ=Asia/Shanghai
-        export OPENWRT_DIR="''${OPENWRT_DIR:-$HOME/work/openwrt-src}"
+        ${commonExports}
+        echo "bare 环境（没有 FHS）：只能跑不依赖 /bin/sh 的东西"
       '';
     };
 
-  # nixpkgs 的 aarch64+musl 交叉工具链 + qemu：只用于脱离 buildroot 快速验证
-  # 「这段 C/C++ 能不能为目标平台编过」，以及用 qemu 跑产物。
-  # 千万不要用它去编 OpenWrt——buildroot 必须用自建工具链。
+  # nixpkgs 的交叉工具链 + qemu：脱离 buildroot 快速验证代码能不能为目标平台编过。
+  #   target     pkgsCross 里的属性名
+  #   qemuArch   qemu-user 的可执行文件名
   mkCrossAarch64 =
-    pkgs:
+    {
+      pkgs,
+      target ? "aarch64-multiplatform-musl",
+      qemuArch ? "aarch64",
+      withQemu ? true,
+    }:
     let
-      cross = pkgs.pkgsCross.aarch64-multiplatform-musl;
+      cross = pkgs.pkgsCross.${target};
+      prefix = cross.stdenv.cc.targetPrefix;
     in
     pkgs.mkShell {
-      packages = [
-        cross.stdenv.cc
-        cross.binutils
-        pkgs.qemu
-        pkgs.file
-      ];
+      packages = [ cross.stdenv.cc cross.binutils pkgs.file ] ++ lib.optionals withQemu [ pkgs.qemu ];
       shellHook = ''
-        export CROSS_COMPILE=aarch64-unknown-linux-musl-
-        echo "aarch64 musl: $(${cross.stdenv.cc.targetPrefix}cc --version | head -1)"
-        echo "跑产物：qemu-aarch64 -L ${cross.stdenv.cc.libc}/lib ./your-binary"
+        export CROSS_COMPILE="${prefix}"
+        echo "交叉工具链：${prefix}cc（$(${prefix}cc --version | head -1)）"
+        ${lib.optionalString withQemu ''
+          echo "跑产物：qemu-${qemuArch} -L ${cross.stdenv.cc.libc}/lib ./your-binary"
+        ''}
       '';
     };
-in
-{
-  inherit hostPackages aliases mkFhsEnv mkBare mkCrossAarch64;
-
-  # 所有 devShell 都是 `pkgs -> attrset`，由 flake.nix 按 system 展开
-  devShells = pkgs: {
-    openwrt = (mkFhsEnv { inherit pkgs; }).env;
-    openwrt-gcc-latest = (mkFhsEnv { inherit pkgs; gcc = pkgs.gcc; suffix = "-gcc-latest"; }).env;
-    openwrt-bare = mkBare pkgs;
-    cross-aarch64 = mkCrossAarch64 pkgs;
-  };
-
-  # `nix run .#shell -- -c '...'` 用的包装器（FHS 的 .env 不透传 --command）
-  shell = pkgs: mkFhsEnv { inherit pkgs; };
 }
-
