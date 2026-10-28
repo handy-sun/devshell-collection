@@ -13,16 +13,16 @@
 
       forEachSystem = f: nixpkgs.lib.genAttrs systems (system: f system nixpkgs.legacyPackages.${system});
 
-      # OpenWrt 有些 host 脚本还在用老式 setup.py / distutils（owrt22 容器里
-      # 对应的就是 python3-distutils + python3-setuptools）。Python 3.12 起
-      # distutils 已经不在标准库里，只能靠 setuptools 提供的垫片补回来。
+      # OpenWrt 有些 host 脚本还在用老式 setup.py / distutils（对应发行版里的
+      # python3-distutils + python3-setuptools）。Python 3.12 起 distutils 已经
+      # 不在标准库里，只能靠 setuptools 提供的垫片补回来。
       pythonFor = pkgs: pkgs.python3.withPackages (ps: [ ps.setuptools ]);
 
       # ------------------------------------------------------------------
       # 依赖清单
       #
       # 权威来源是 OpenWrt 自己的 include/prereq-build.mk（每条都会在
-      # `make prereq` 时检查），owrt22/Dockerfile 里的 apt 列表只是它的近似。
+      # `make prereq` 时检查），发行版文档里的依赖列表通常只是它的近似。
       # 下面按 prereq 的检查项逐条对应到 nixpkgs 包名。
       # ------------------------------------------------------------------
       openwrtHostPackages =
