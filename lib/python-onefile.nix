@@ -16,18 +16,15 @@
   artifact ? "",
   # 允许的最高 GLIBC 符号版本
   glibcBaseline ? "2.17",
-  # 在源码树根目录执行的构建命令。单个脚本路径会用 bash 显式调用
-  # （非 FHS 环境里没有 /usr/bin/env，带 `#!/usr/bin/env bash` 的脚本不能直接执行）；
-  # 想跑完整命令行时直接传字符串，例如 "make dist"。
+  # 在源码树根目录执行的构建命令（用 bash -c 跑，所以 "make dist" 也行）
   buildCommand ? "./build.sh",
   extraPackages ? [ ],
 }:
 let
   depsLine = lib.concatStringsSep " " (map (d: "\"${d}\"") deps);
   artifactHint = if artifact == "" then "dist/ 下最新的文件" else artifact;
-  buildRunner =
-    if lib.hasInfix " " buildCommand then buildCommand else "${pkgs.bash}/bin/bash ${buildCommand}";
-  c = {
+  buildCommandQuoted = lib.escapeShellArg buildCommand;
+  tools = {
     printenv = "${pkgs.coreutils}/bin/printenv";
     sort = "${pkgs.coreutils}/bin/sort";
     tail = "${pkgs.coreutils}/bin/tail";
@@ -43,7 +40,7 @@ let
   build = pkgs.writeShellScriptBin "${name}-build" ''
     set -euo pipefail
 
-    src="$(${c.printenv} ${dirEnv} || true)"
+    src="$(${tools.printenv} ${dirEnv} || true)"
     if [ -z "$src" ]; then
       echo "请先设置 ${dirEnv}（例如 export ${dirEnv}=$HOME/${defaultDir}）" >&2
       exit 1
@@ -52,7 +49,7 @@ let
 
     cache="''${XDG_CACHE_HOME:-$HOME/.cache}/devshell-collection/${name}"
     venv="$cache/venv"
-    ${c.mkdir} -p "$cache"
+    ${tools.mkdir} -p "$cache"
 
     echo ">>> Python ${python}（python-build-standalone，glibc ${glibcBaseline} 基线）"
     uv python install --no-bin ${python}
@@ -65,27 +62,27 @@ let
     uv pip install --quiet --python "$venv/bin/python" "pyinstaller==${pyinstaller}" ${depsLine}
 
     echo ">>> 构建：${buildCommand}"
-    PATH="$venv/bin:$PATH" ${buildRunner}
+    PATH="$venv/bin:$PATH" ${pkgs.bash}/bin/bash -c ${buildCommandQuoted}
 
     if [ -n "${artifact}" ]; then
       bin="$src/${artifact}"
     else
-      bin=$(${c.find} "$src/dist" -maxdepth 1 -type f -printf '%T@ %p\n' 2>/dev/null \
-        | ${c.sort} -n | ${c.tail} -1 | ${c.cut} -d' ' -f2-)
+      bin=$(${tools.find} "$src/dist" -maxdepth 1 -type f -printf '%T@ %p\n' 2>/dev/null \
+        | ${tools.sort} -n | ${tools.tail} -1 | ${tools.cut} -d' ' -f2-)
     fi
     if [ -z "$bin" ] || [ ! -f "$bin" ]; then
       echo "构建没有产出可用的二进制（期望 ${artifactHint}）" >&2
       exit 1
     fi
 
-    max=$(${c.objdump} -T "$bin" | ${c.grep} -o 'GLIBC_[0-9.]*' | ${c.sort} -uV | ${c.tail} -1)
+    max=$(${tools.objdump} -T "$bin" | ${tools.grep} -o 'GLIBC_[0-9.]*' | ${tools.sort} -uV | ${tools.tail} -1)
     limit="GLIBC_${glibcBaseline}"
-    highest=$(${c.printf} '%s\n%s\n' "$max" "$limit" | ${c.sort} -uV | ${c.tail} -1)
+    highest=$(${tools.printf} '%s\n%s\n' "$max" "$limit" | ${tools.sort} -uV | ${tools.tail} -1)
     if [ "$highest" != "$limit" ]; then
       echo "✗ $bin 需要 $max，超过目标基线 $limit" >&2
       exit 1
     fi
-    echo "✓ $bin 最高要求 $max（目标基线 $limit），大小 $(${c.du} -h "$bin" | cut -f1)"
+    echo "✓ $bin 最高要求 $max（目标基线 $limit），大小 $(${tools.du} -h "$bin" | cut -f1)"
   '';
 in
 pkgs.mkShell {
@@ -99,11 +96,11 @@ pkgs.mkShell {
   ] ++ extraPackages;
 
   shellHook = ''
-    if [ -z "$(${c.printenv} ${dirEnv} || true)" ]; then
+    if [ -z "$(${tools.printenv} ${dirEnv} || true)" ]; then
       export ${dirEnv}="$HOME/${defaultDir}"
     fi
     echo "${name} | PyInstaller onefile（Python ${python}，目标 glibc ${glibcBaseline}）"
-    echo "源码树：$(${c.printenv} ${dirEnv})"
+    echo "源码树：$(${tools.printenv} ${dirEnv})"
     echo "构建： ${name}-build    → ${artifactHint}"
   '';
 }

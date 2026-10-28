@@ -100,32 +100,23 @@ let
       (pkgs.writeShellScriptBin "egrep" ''exec ${pkgs.gnugrep}/bin/grep -E "$"'')
     ];
 
-  # 固定的环境变量与提示：FHS 和 bare 两个 shell 共用
+  # FHS 与 bare 共用的环境变量（每项的原因见 docs/openwrt.md）
   commonExports = ''
     umask 022
 
-    # fakeroot（buildroot 的 tools/fakeroot）在 bwrap 的 user namespace 里
-    # 做 chown 拿到的是 EINVAL、不是它期待的 EPERM，package/install 打包那一步
-    # 会带着错误直接退出。fakeroot 认这个开关（官方 man page 都没写）。
+    # bwrap 里 chown 返回 EINVAL 而非 EPERM，不设这个 fakeroot 打包会失败
     export FAKEROOTDONTTRYCHOWN=1
 
-    # 别让 nix 的编译器 wrapper 往 buildroot 的编译里塞加固标志
+    # 别让 nix 的 cc-wrapper 往编译里塞加固标志
     export NIX_HARDENING_ENABLE=
 
-    # 新 glibc/gcc 对几年前的旧代码会报一堆当年没有的警告，而 buildroot 的
-    # host tools 大多自带 -Werror，一撞就编不过。典型：tools/elfutils 的
-    # libcpu/riscv_disasm.c —— glibc 2.38 起 _GNU_SOURCE 也会打开 C23 语义，
-    # bsearch 变成 const-generic 宏，拿 const 数组查询时返回 const void *，
-    # 那句 "initialization discards 'const' qualifier" 就被 -Werror 顶成错误。
-    # 这里让 nix 的 cc-wrapper 在命令行末尾补 -Wno-error：警告照旧打印，只是
-    # 不再中断编译。目标端不受影响——那是 buildroot 自建的工具链在编。
+    # 新工具链的警告碰上 buildroot 的 -Werror 会中断编译，统一降级
     export NIX_CFLAGS_COMPILE="''${NIX_CFLAGS_COMPILE} -Wno-error"
 
     export LANG=en_US.UTF-8
     export LC_ALL=en_US.UTF-8
     export TZ=Asia/Shanghai
 
-    # 源码树位置（也可以用 OPENWRT_DIR 覆盖）
     export OPENWRT_DIR="''${OPENWRT_DIR:-$HOME/work/openwrt-src}"
   '';
 in
@@ -153,9 +144,7 @@ rec {
       # 让 dev 输出也进 FHS（头文件、pkg-config、.so 链接）
       extraOutputsToInstall = [ "dev" ];
 
-      # 关掉 nix cc-wrapper 的 hardening 注入（-D_FORTIFY_SOURCE、
-      # -fstack-protector-strong 等）。buildroot 自己决定优化和加固参数，
-      # 宿主再偷偷塞一份只会让老代码在 -Werror 下挂掉。
+      # buildroot 自己决定加固参数，别让 nix 的 cc-wrapper 再塞一份
       hardeningDisable = [ "all" ];
 
       runScript = "bash";
@@ -164,16 +153,13 @@ rec {
       profile = ''
         ${commonExports}
 
-        # 防止宿主环境的编译参数泄漏进 buildroot。
-        # 注意：NIX_CFLAGS_COMPILE / NIX_LDFLAGS 不能 unset——FHS 正是靠
-        # 它们把 /usr/include 和 /usr/lib 加进搜索路径（见 nixpkgs 的
-        # buildFHSEnv 生成的 /etc/profile）。
+        # 清掉宿主泄漏的编译参数；NIX_CFLAGS_COMPILE / NIX_LDFLAGS 不能 unset，
+        # FHS 靠它们把 /usr/include、/usr/lib 加进搜索路径
         unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
         unset CC CXX HOSTCC HOSTCXX
         unset ARCH CROSS_COMPILE
-        # FHS 的 /etc/profile 只把 /usr/lib/pkgconfig 放进搜索路径，但 zlib 之类的
-        # .pc 装在 /usr/share/pkgconfig，所以两个都要给，否则 pkg-config --exists
-        # zlib 会失败。
+
+        # FHS 只加了 /usr/lib/pkgconfig，zlib.pc 之类装在 /usr/share/pkgconfig
         export PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/share/pkgconfig
 
         echo "OpenWrt buildroot 环境 | gcc $(gcc -dumpversion) | $(bash --version | head -1)"

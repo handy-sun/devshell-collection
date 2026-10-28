@@ -80,6 +80,7 @@ OpenWrt buildroot 硬依赖一批固定路径，NixOS 上默认没有：
 | `/usr/include`、`/usr/lib`（configure 探测、`-lncurses`） | 不存在 | 同上，`NIX_CFLAGS_COMPILE` / `NIX_LDFLAGS` 指向 `/usr` |
 | `-Wl,-Bstatic -lz`（host tools 静态链接 zlib） | nixpkgs 的 zlib 默认没有 `libz.a` | 额外装 `zlib.static` |
 | 直接调用 `awk` / `python` / `egrep` | 包名与命令名对不上 | 补 wrapper（`gawk`、`python3`、`grep -E`） |
+| `pkg-config --exists zlib` 找不到 | FHS 只把 `/usr/lib/pkgconfig` 放进搜索路径 | `PKG_CONFIG_PATH` 再补 `/usr/share/pkgconfig` |
 
 ## 环境里有什么
 
