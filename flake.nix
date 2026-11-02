@@ -2,9 +2,13 @@
   description = "A collection of Nix dev shells, one per source tree";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  # 只为 gcc11（11.5.0）：nixos-unstable 已经把 gcc11 移除了
+  inputs.nixpkgs-gcc11.url = "github:NixOS/nixpkgs/nixos-25.05";
+  # 目标机是 el9（glibc 2.34）：这个 nixpkgs 的 glibc 正好 2.34，用来编译部署产物
+  inputs.nixpkgs-el9.url = "github:NixOS/nixpkgs/nixos-22.05";
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, nixpkgs-gcc11, nixpkgs-el9 }:
     let
       inherit (nixpkgs) lib;
 
@@ -19,6 +23,9 @@
       # 具体参数（gcc 版本、目标三元组…）在下面的 devShells 里显式写清楚。
       openwrt = import ./lib/openwrt.nix { inherit lib; };
       mkPythonOnefile = import ./lib/python-onefile.nix { inherit lib; };
+      mkCxxClangd = import ./lib/cxx-clangd.nix { inherit lib; };
+      gcc11For = system: nixpkgs-gcc11.legacyPackages.${system}.gcc11;
+      el9For = system: nixpkgs-el9.legacyPackages.${system};
     in
     {
       devShells = forEachSystem (
@@ -58,6 +65,25 @@
               "uvicorn==0.29.0"
             ];
             glibcBaseline = "2.17";
+          };
+
+          # C/C++ 项目（APP_DIR 默认 = 进入 shell 时的当前目录）
+          # 工具用新版（clangd 要 ≥16 才认 .clangd 的 If），编译器/库用 el9 那套
+          # （glibc 2.34 + gcc 11.3），产物才能在 el9 容器里跑。
+          cxx = mkCxxClangd {
+            inherit pkgs;
+            name = "cxx";
+            gcc = (el9For pkgs.stdenv.system).gcc11;
+            # nix stdenv 默认注入 -O2，而项目的 Makefile 只写了 -g（-O0）；
+            # 不压回去产物会大 60%（全是调试信息），行为也和 el9 上编出来的不一致
+            extraCFlags = "-O0";
+            dynamicLinker = "/lib64/ld-linux-x86-64.so.2";
+            extraPackages = with (el9For pkgs.stdenv.system); [
+              libevent
+              libjwt
+              rabbitmq-c
+              libsodium
+            ];
           };
         }
       );
