@@ -21,7 +21,12 @@
 
       # 环境模板：只提供 "给一组 pkgs + 参数 → devShell" 的函数。
       # 具体参数（gcc 版本、目标三元组…）在下面的 devShells 里显式写清楚。
-      openwrt = import ./lib/openwrt.nix { inherit lib; };
+      openwrt = import ./lib/openwrt.nix {
+        inherit lib;
+        # OpenWrt 21.02 的 prereq 只认 Python 3.5–3.10，且需要 distutils；
+        # unstable 里已经没有 python310 了，用 nixpkgs-el9（22.05）那份。
+        pythonFor = pkgs: (el9For pkgs.stdenv.system).python310;
+      };
       mkPythonOnefile = import ./lib/python-onefile.nix { inherit lib; };
       mkCxxClangd = import ./lib/cxx-clangd.nix { inherit lib; };
       gcc11For = system: nixpkgs-gcc11.legacyPackages.${system}.gcc11;

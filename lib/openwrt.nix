@@ -7,12 +7,12 @@
 #   mkCrossAarch64  nixpkgs 的交叉工具链 + qemu（与 buildroot 无关）
 #
 # 为什么必须用 FHS、各项取舍见 docs/openwrt.md。
-{ lib }:
+{ lib, pythonFor ? (pkgs: pkgs.python3) }:
 let
-  # OpenWrt 有些 host 脚本还在用老式 setup.py / distutils（对应发行版里的
-  # python3-distutils + python3-setuptools）。Python 3.12 起 distutils 已经
-  # 不在标准库里，只能靠 setuptools 提供的垫片补回来。
-  pythonFor = pkgs: pkgs.python3.withPackages (ps: [ ps.setuptools ]);
+  # OpenWrt 21.02 的 include/prereq-build.mk 把版本正则写死成
+  # 'Python 3\.([5-9]|10)\.?'，只认 3.5–3.10；并且还要 python3-distutils
+  # （Python 3.12 起标准库里已经没有 distutils）。所以这里由调用方传入一个
+  # 3.10 的解释器，默认值只在不需要跑 prereq 的场景下用。
 
   # ------------------------------------------------------------------
   # 依赖清单
