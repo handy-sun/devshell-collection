@@ -62,6 +62,9 @@ let
       curl
       cacert
       git
+      # rsync/git 走 ssh 时要能 exec 到 ssh（清单没列的话会报
+      # "rsync: Failed to exec ssh: No such file or directory"）
+      openssh
       gettext # msgfmt
       subversion # 部分 feed 走 svn://
       swig # OpenWrt 文档列出的依赖
