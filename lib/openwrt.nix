@@ -118,7 +118,7 @@ let
 
     export LANG=en_US.UTF-8
     export LC_ALL=en_US.UTF-8
-    export TZ=Asia/Shanghai
+    export TZDIR=/usr/share/zoneinfo
 
     export OPENWRT_DIR="''${OPENWRT_DIR:-$HOME/work/openwrt-src}"
   '';
